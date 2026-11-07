@@ -854,9 +854,14 @@ export class TurboLayer {
     this.wgShaper.curve = surgePulseCurve(1024);
     this.wgShaper.oversample = '2x';
     this.wgAM = keep(ctx.createGain());
-    this.wgAM.gain.value = 0.05;
+    // `turbo.wgFlutter` is how deep the bursts cut; the mean level (~0.3 of
+    // full depth) is held so turning the stutter down doesn't mute the rush.
+    this.wgAM.gain.value = 0.05 + 0.3 * (1 - this.wgFlutter);
+    this.wgDepth = keep(ctx.createGain());
+    this.wgDepth.gain.value = this.wgFlutter;
     this.wgOsc.connect(this.wgShaper);
-    this.wgShaper.connect(this.wgAM.gain);
+    this.wgShaper.connect(this.wgDepth);
+    this.wgDepth.connect(this.wgAM.gain);
     white.connect(this.wgBP);
     this.wgBP.connect(this.wgAM);
     this.wgAM.connect(this.wgLevel);
@@ -1092,6 +1097,10 @@ export class TurboLayer {
     this.maxBoost = clamp(fin(t && t.maxBoost, 1), 0, 5);
     this.bovLevel = clamp(fin(t && t.bov, 0.5), 0, 2);
     this.surgeTrim = clamp(fin(t && t.surge, 1), 0, 3);
+    // Trims on the broadband rush (wastegate, airflow, near-surge whoosh) and on the whistle's pitch.
+    this.rush = clamp(fin(t && t.rush, 1), 0, 2);
+    this.whinePitch = clamp(fin(t && t.whinePitch, 1), 0.5, 4);
+    this.wgFlutter = clamp(fin(t && t.wgFlutter, 1), 0, 1);
     this.valve = Math.round(clamp(fin(t && t.valve, 1), 0, 2));   // 0 none, 1 atmos, 2 recirc
     this.flutterHz = clamp(fin(t && t.flutterHz, 13), 3, 30);
     this.screamer = fin(t && t.screamer, 0) >= 0.5;
@@ -1105,7 +1114,7 @@ export class TurboLayer {
     // engine as a hum-whistle instead of on top of it.
     const order = 0.5 * fin(t && t.whineOrder, 70);
     // Whine of a fully spooled turbo at redline, Hz. See TURBO_WHINE_MAX_HZ.
-    this.whineRef = clamp((redline / 120) * order, 200, TURBO_WHINE_MAX_HZ);
+    this.whineRef = clamp((redline / 120) * order, 200, TURBO_WHINE_MAX_HZ) * this.whinePitch;
   }
 
   update(p) {
@@ -1193,7 +1202,7 @@ export class TurboLayer {
     setT(this.whineNoiseGain.gain, 0.30 * aero * (0.5 + 0.5 * flow), now, TC);
     // Airflow: tracks how much air is moving (boost × flow), and opens up in
     // pitch as it does.
-    setT(this.airflowGain.gain, 0.20 * (0.15 + 0.85 * this.spool) * this.spool * (0.25 + 0.75 * flow), now, 0.05);
+    setT(this.airflowGain.gain, this.rush * 0.20 * (0.15 + 0.85 * this.spool) * this.spool * (0.25 + 0.75 * flow), now, 0.05);
     setF(this.airflowLP.frequency, 900 + 1300 * this.spool, now, TC, 1400);
 
     // Bearing wander, in cents. Deepest off-boost where the rotor is least
@@ -1234,7 +1243,7 @@ export class TurboLayer {
     // rev range, so a normal pull gets into the stutter before every shift.
     const nearCeiling = clamp((this.spool - 0.40) / 0.30, 0, 1) * clamp((rpmNorm - 0.40) / 0.30, 0, 1);
     // 0.3 → 0.7: rendered, it was well under the rest of the turbo voice.
-    const gate = nearCeiling * throttle * (this.screamer ? 1.3 : 0.7);
+    const gate = nearCeiling * throttle * (this.screamer ? 1.3 : 0.7) * this.rush;
     setF(this.wgOsc.frequency, 18 + 12 * nearCeiling + 8 * rpmNorm, now, 0.05, 24);
     setF(this.wgBP.frequency, (this.screamer ? 900 : 1400) + 1300 * this.spool, now, TC, 1500);
     setT(this.wgLevel.gain, gate, now, 0.05);
@@ -1247,7 +1256,7 @@ export class TurboLayer {
 
     // Close to the surge line: boost up, airflow (revs) low, pedal down.
     const nearSurge = clamp((this.boost - 0.12) / 0.45, 0, 1) * throttle * (1 - 0.75 * rpmNorm);
-    const whoosh = 0.18 * (nearSurge + 0.6 * this._climb * Math.sqrt(this.spool));
+    const whoosh = this.rush * 0.18 * (nearSurge + 0.6 * this._climb * Math.sqrt(this.spool));
     setT(this.whooshGain.gain, whoosh, now, 0.04);
     setT(this.whooshGrain.gain, whoosh * 0.6, now, 0.05);
     setF(this.whooshBP.frequency, clamp(4000 + 3500 * this.spool, 3000, 8000), now, TC, 5000);
