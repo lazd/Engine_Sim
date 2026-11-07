@@ -387,7 +387,7 @@ export class EngineSim {
     // 2-6 kHz band stays at 2.3 % (it was 4.0 %). Body from the pipe, edge from
     // the direct path.
     this.popDirect = ctx.createGain();
-    this.popDirect.gain.value = 0.75;
+    this.popDirect.gain.value = 0.55;
     this.transients.combustionOutput.connect(this.popDirect);
     this.popDirect.connect(this.busses.transients);
 

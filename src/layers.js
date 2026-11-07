@@ -1686,12 +1686,18 @@ const TRANSIENT_PRESETS = Object.freeze({
   // "gone". A pop needs the pipe for its BODY and its own high end for its
   // DEFINITION, and the octave drop threw the second away along with the
   // problem. 112/680 and 700/1850 are the midpoint, chosen by measurement.
-  bang:    Object.freeze({ bus: 'combustion', fA: 112,  qA: 1.6, fB: 680,  qB: 2.0, mixB: 0.58, atk: 0.0050, dec: 0.190, lvl: 1.0 }),
+  //
+  // Third correction: a hard crack (1.5 kHz, 1.5 ms attack) sounded like a
+  // gunshot, not a car. What the ear expects from an overrun is a BURBLE: soft,
+  // round, wet, low-mid pulses (150-800 Hz) that come as a quick irregular
+  // string and live mostly inside the pipe. Short decays keep each one a
+  // bubble rather than a thud; the string, not any single report, is the sound.
+  bang:    Object.freeze({ bus: 'combustion', fA: 150,  qA: 1.4, fB: 460,  qB: 1.6, mixB: 0.5,  atk: 0.0035, dec: 0.085, lvl: 0.9 }),
   // The little ones that follow it: brighter, shorter, quieter, and the part
   // that carries a pop's definition. 850/1900 put half of it inside the 2-6 kHz
   // band; 430/1150 removed it from the mix entirely. 700/1850 keeps the top of
   // the band under 2 kHz while restoring the crackle's edge.
-  crackle: Object.freeze({ bus: 'combustion', fA: 700,  qA: 3.0, fB: 1850, qB: 3.6, mixB: 0.62, atk: 0.0030, dec: 0.055, lvl: 0.5 }),
+  crackle: Object.freeze({ bus: 'combustion', fA: 300,  qA: 2.2, fB: 780,  qB: 2.4, mixB: 0.55, atk: 0.0025, dec: 0.040, lvl: 0.55 }),
   // Backlash take-up: two hardened steel faces colliding.
   //
   // This was 1150/3100 Hz at Q 22/16 with a 0.8 ms attack, which is not a
@@ -1976,18 +1982,18 @@ export class TransientBank {
       const roll = rnd();
       const bigness = 0.5 * popEv + 0.5 * rpmNorm;
       let shape;
-      if (roll < 0.34 - 0.16 * bigness) shape = 'crack';
-      else if (roll < 0.80 - 0.10 * bigness) shape = 'double';
+      if (roll < 0.08 - 0.04 * bigness) shape = 'crack';
+      else if (roll < 0.30 - 0.08 * bigness) shape = 'double';
       else shape = 'stutter';
 
       const maxRun = clamp(Math.round(
-        (1.0 + 6 / Math.max(3, this.cyl)) * (0.6 + 0.7 * rnd())), 2, 3);
+        (1.0 + 6 / Math.max(3, this.cyl)) * (0.6 + 0.7 * rnd())) + 2, 3, 6);
       const spread = shape === 'crack' ? 1 : shape === 'double' ? 2 : maxRun;
       const count = Math.min(budget, spread);
 
       // A single crack puts the whole event into one report, so it has to be
       // louder than the first of a string or it reads as weaker, not punchier.
-      const punch = shape === 'crack' ? 2.6 : shape === 'double' ? 2.0 : 1.6;
+      const punch = shape === 'crack' ? 1.8 : shape === 'double' ? 1.4 : 1.1;
 
       // Per-EVENT size draw, on top of the per-report jitter. Without this the
       // only thing separating one lift from another is rpm, so every pop at a
@@ -2000,7 +2006,7 @@ export class TransientBank {
       for (let i = 0; i < count; i++) {
         // Not a clean decay: real bursts stutter, and an occasional late one is
         // louder than the one before it.
-        const fall = Math.pow(0.86, i) * (0.6 + 0.8 * rnd());
+        const fall = Math.pow(0.93, i) * (0.6 + 0.8 * rnd());
         // Ceiling 3, not 1: the 2.6x single-crack punch was being clamped away
         // right here, so every "gunshot" arrived as an ordinary pop. Effective
         // audio level is amp x makeup(9) x bandpass loss(0.114). The master
@@ -2013,7 +2019,7 @@ export class TransientBank {
         this.trigger(type, t, amp, fScale, 0.7 + 0.9 * rnd());
         // Gaps scale with engine size: big engines pop slower. A stutter runs
         // tighter than a lazy double.
-        const gapScale = shape === 'stutter' ? 0.55 : 1;
+        const gapScale = shape === 'stutter' ? 0.3 : 0.7;
         t += (0.055 + rnd() * 0.16) * (0.6 + 4 / Math.max(3, this.cyl)) * gapScale;
         budget--;
       }
